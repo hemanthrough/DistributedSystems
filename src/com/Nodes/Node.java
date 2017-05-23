@@ -9,37 +9,34 @@ import java.net.Socket;
 import java.net.UnknownHostException;
 
 
-public class Node {
+public class Node extends Thread {
 	ServerSocket listener;
 	int sucx;
-	int id ;
+	
+	final int id ;
+	final int successor;
+	final int serverport;
+	int coordinator = 0;
+	Socket s;
 	public Node(int serverport,int id,int successor ){
-		try {
-			//intialize the port
-			listener = new ServerSocket(serverport);
-			//run forever
-			sucx= successor;
-			this.id = id;
-			while (true) {
-				Socket clientSocket = listener.accept();
-			    System. out.println("Election message received");
-			    Connection c = new Connection(clientSocket,successor,id);
-			}
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
+		this.serverport = serverport;
+		this.successor = successor;
+		this.id = id;
+		startDemon();
+		sucx = successor;
 	}
+	
+	
+	//starts the election
 	void beginElection(){
-		Socket s;
+		
 		try {
 			s = new Socket ("localhost", sucx);
 			DataOutputStream out = new DataOutputStream ( s.getOutputStream());
-			  //1 for elected 
-			    //2 for election
+			  //2 for election
 			    int typeOfElection =2;
 			    out.writeUTF (typeOfElection+","+id); 
-				System.out.println("Sent data: " + typeOfElection+","+id);	  
+				System.out.println("pid "+id +"Sent data: " + typeOfElection+","+id);	  
 				s.close();
 		} catch (UnknownHostException e) {
 			// TODO Auto-generated catch block
@@ -48,14 +45,36 @@ public class Node {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		new Thread( new  Runnable() {
-			public void run() {
-				
-			}
-		}).start();
+
 	    
 	}
+	//start listening 
+	public void startDemon(){
+		this.start();
+	}
+
+	@Override
+	public void run() {
+		// TODO Auto-generated method stub
+		try {
+			//intialize the port
+			listener = new ServerSocket(serverport);
+			//run forever
+			while (true) {
+				//System.out.println("start listening " +this.id);
+				Socket clientSocket = listener.accept();
+			    ///System. out.println("Election message received");
+			    Connection c = new Connection(clientSocket,successor,id,this);
+			}
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
 	
+	void setCordinator(int selected_cordinator){
+		coordinator = selected_cordinator;
+	}
 	
 }
 class Connection extends Thread {
@@ -64,15 +83,19 @@ class Connection extends Thread {
 	  Socket clientSocket;
 	  int successor ;
 	  int id;
+	  final Node currentNode;
 
-	  public Connection (Socket aClientSocket,int succesor,int processID) {
-	    try {
+	  public Connection (Socket aClientSocket,int succesor,int processID,Node sender) {
+		  currentNode =sender;
+		  try {
+			  //init next node
 	      clientSocket = aClientSocket;
 	      out = new DataOutputStream ( clientSocket.getOutputStream() );
 	      in = new DataInputStream ( clientSocket.getInputStream() );
 	      this.successor = succesor;
 	      this.id= processID;
 	      this.start();
+	      
 	    } catch( IOException e) {System. out. println(" Connection:"+ e.getMessage());}
 	  }
 
@@ -80,27 +103,53 @@ class Connection extends Thread {
 	    try {
 	      String data = in.readUTF ();
 	      String[] params =data.split(",");
-		  //out.writeUTF(data);
-	      int receivedID = Integer.parseInt(params[1]);
-	     
-	      int electedId = id;
+		  //get participant or coorinator details 
+	      int participant = Integer.parseInt(params[1]);
+	     // to itself for comparison
+	      int id2BeTramsmitted = id;
 	      //1 for elected message
 	      //2 for election message
 	      int typeOfElection = Integer.parseInt(params[0]);;
 	      
 	      if (typeOfElection==2) {
-			if (receivedID == id) {
+	    	  // if election
+			if (participant == id) {
+				System.out.println("elction is over starting elected message"+id );
 				//election is over 
+				//chooses itself as coordinator and starts elected message
 				typeOfElection = 1;
-			} else if (receivedID > electedId) {
+
+				currentNode.setCordinator(participant);
+				
+			} else if (participant > id2BeTramsmitted) {
+				// if the sender has higher id chage the participant
+				
 				typeOfElection = 2;
-				electedId = receivedID;
+				id2BeTramsmitted = participant;
+				System.out.println("sending election message"+id +"sent id data "+id2BeTramsmitted);
 			} 
 		}
+	      //if elected message
+	      else if(typeOfElection ==1){
+	    	  //if its turns around it stops broadcast
+	    	  if (participant == id) {
+					//election broadcast is over stop broadcast 
+	    		  System.out.println("stoping the elected message");	
+	    		  this.stop();
+	    		  	
+				}
+	    	  //set the coordinator transfer to other nodes
+	    	  else{
+	    		  id2BeTramsmitted = participant;
+	    		  typeOfElection = 1;
+	    		  currentNode.setCordinator(participant);
+	    		  System.out.println("pid "+id +"changing cordinator to "+participant);
+	    	  }
+	      }
 		Socket s = new Socket ("localhost", successor);
 	      DataOutputStream out = new DataOutputStream ( s.getOutputStream());
-	      out.writeUTF (typeOfElection+","+electedId); 
-		  System.out.println("Sent data: " + typeOfElection+","+electedId);	  
+	      out.writeUTF (typeOfElection+","+id2BeTramsmitted); 
+		  System.out.println("PID " +id +"Sending data: " + typeOfElection+","+id2BeTramsmitted);	  
 
 	      clientSocket.close();
 		  s.close();
